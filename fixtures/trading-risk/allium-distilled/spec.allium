@@ -1,0 +1,476 @@
+-- allium: 3
+-- TradingRisk: distilled from app/.
+
+------------------------------------------------------------
+-- External Entities
+------------------------------------------------------------
+
+-- Arrives via /webhooks/market-data. Each tick updates the live mark for an instrument.
+external entity MarketTickEvent {
+    instrument_symbol: String
+    last_price_pence: Integer
+    received_at: Timestamp
+    tick_id: String
+    tick_time: Timestamp
+    venue: String
+}
+
+-- Arrives via /webhooks/regulator. notice_kind is one of trading_halt, position_limit, or other.
+external entity RegulatoryNotice {
+    description: String
+    effective_from: Timestamp
+    instrument_symbol: String?
+    notice_id: String
+    notice_kind: String
+    received_at: Timestamp
+}
+
+------------------------------------------------------------
+-- Value Types
+------------------------------------------------------------
+
+value CollateralReleaseRequest {
+    amount_pence: Integer
+    submitted_at: Timestamp
+    trader_id: String
+    upstream_reference: String
+}
+
+value MarginPosting {
+    amount_pence: Integer
+    margin_call_id: String
+    submitted_at: Timestamp
+    trader_id: String
+    upstream_reference: String
+}
+
+value PositionReportEntry {
+    instrument_symbol: String
+    net_quantity: Integer
+    notional_value_pence: Integer
+    trader_id: String
+}
+
+value PositionReportSubmission {
+    desk_id: String
+    entries: List<PositionReportEntry>
+    receipt_id: String
+    report_date: Timestamp
+    submitted_at: Timestamp
+}
+
+value PriceSnapshot {
+    instrument_symbol: String
+    last_price_pence: Integer
+    snapshot_time: Timestamp
+    venue: String
+}
+
+value SubscriptionRequest {
+    delivery_endpoint: String
+    instrument_symbol: String
+    venue: String
+}
+
+value SubscriptionResponse {
+    accepted_at: Timestamp
+    request: SubscriptionRequest
+    status: SubscriptionStatus
+    subscription_id: String
+}
+
+------------------------------------------------------------
+-- Contracts
+------------------------------------------------------------
+
+contract ClearingHouseService {
+    post_margin_call: (amount_pence: Integer, margin_call_id: String, trader_id: String) -> MarginPosting
+    request_collateral_release: (amount_pence: Integer, trader_id: String) -> CollateralReleaseRequest
+
+    @invariant AmountPenceIsPositive
+        -- amount_pence > 0
+
+    @invariant AmountPenceIsPositive
+        -- amount_pence > 0
+
+    @invariant AmountPenceWithinCap
+        -- amount_pence <= 1_000_000_000_00
+}
+
+contract MarketDataService {
+    snapshot_price: (instrument_symbol: String, venue: String) -> PriceSnapshot
+    subscribe_to_ticks: (delivery_endpoint: String, instrument_symbol: String, venue: String) -> SubscriptionResponse
+
+    @invariant Precondition
+        -- instrument_symbol != null
+
+    @invariant Precondition
+        -- venue != null
+
+    @invariant Precondition
+        -- instrument_symbol != null
+
+    @invariant Precondition
+        -- venue != null
+}
+
+contract RegulatorReportingService {
+    submit_position_report: (desk_id: String, entries: List<PositionReportEntry>, report_date: Timestamp) -> PositionReportSubmission
+
+    @invariant Precondition
+        -- desk_id != null
+
+    @invariant Precondition
+        -- entries.count > 0
+}
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+enum AssetClass { bond | derivative | equity }
+
+enum DeskStatus { active | shuttered | winding_down }
+
+enum MarginCallStatus { cleared | defaulted | issued | posted }
+
+enum OrderSide { buy | sell }
+
+enum OrderStatus { cancelled | filled | partially_filled | pending | rejected }
+
+enum PositionStatus { closed | flat | open }
+
+enum RiskLimitMetric { concentration | notional | var }
+
+enum RiskLimitScope { desk | firm | trader }
+
+enum RiskLimitStatus { active | breached | overridden }
+
+enum SubscriptionStatus { active | pending | rejected }
+
+enum TraderStatus { active | offboarded | suspended }
+
+------------------------------------------------------------
+-- Entities
+------------------------------------------------------------
+
+-- Tradeable instrument. lot_size constrains order quantity multiples; annualised_volatility is a 0.0-1.0 decimal.
+entity Instrument {
+    annualised_volatility: Decimal
+    asset_class: AssetClass
+    currency: String
+    lot_size: Integer
+    sector: String
+    symbol: String
+}
+
+-- Issued when a risk limit is breached. Deadline defaults to T+1 day after issuance.
+entity MarginCall {
+    cleared_at: Timestamp?
+    deadline: Timestamp
+    defaulted_at: Timestamp?
+    issued_at: Timestamp
+    margin_call_id: String
+    posted_amount_pence: Integer
+    posted_at: Timestamp?
+    required_amount_pence: Integer
+    risk_limit_id: String
+    status: MarginCallStatus
+    trader_id: String
+
+    is_overdue: status = issued and now > deadline
+}
+
+-- limit_price_pence = 0 indicates a market order. quantity must be a positive multiple of instrument.lot_size.
+entity Order {
+    instrument_symbol: String
+    last_activity_at: Timestamp
+    limit_price_pence: Integer
+    order_id: String
+    quantity: Integer
+    quantity_filled: Integer
+    rejection_reason: String?
+    side: OrderSide
+    status: OrderStatus
+    submitted_at: Timestamp
+    trader_id: String
+
+    notional_value_pence: quantity * limit_price_pence
+    remaining_quantity: quantity - quantity_filled
+}
+
+-- quantity is signed: positive = long, negative = short. Becomes flat when quantity reaches zero; closed after stale-flat window.
+entity Position {
+    avg_entry_price_pence: Integer
+    closed_at: Timestamp?
+    instrument_symbol: String
+    last_activity_at: Timestamp
+    opened_at: Timestamp
+    position_id: String
+    quantity: Integer
+    status: PositionStatus
+    trader_id: String
+}
+
+-- scope_id identifies a trader, a desk, or the literal firm. threshold_pence is interpreted per metric.
+entity RiskLimit {
+    breached_at: Timestamp?
+    limit_id: String
+    metric: RiskLimitMetric
+    scope: RiskLimitScope
+    scope_id: String
+    status: RiskLimitStatus
+    threshold_pence: Integer
+}
+
+-- A trader belongs to one desk. authorised_asset_classes controls which instruments they may trade.
+entity Trader {
+    authorised_asset_classes: Set<String>
+    desk_id: String
+    last_activity_at: Timestamp
+    name: String
+    status: TraderStatus
+    trader_id: String
+
+    margin_calls: MarginCall with trader = this
+    open_margin_calls: margin_calls where status = issued
+    open_positions: positions where status = open
+    positions: Position with trader = this
+
+    has_open_margin_calls: open_margin_calls.count > 0
+    total_notional_exposure: sum(open_positions.notional_value)
+}
+
+-- Aggregates a set of traders. risk_appetite_pence is the firm-allocated headroom for the desk.
+entity TradingDesk {
+    desk_head: String
+    desk_id: String
+    name: String
+    risk_appetite_pence: Integer
+    status: DeskStatus
+
+    active_traders: traders where status = active
+    traders: Trader with desk = this
+}
+
+------------------------------------------------------------
+-- Config
+------------------------------------------------------------
+
+config {
+    concentration_pct: Decimal = 0.25
+    margin_call_deadline: Duration = 1.days
+    risk_agg_window: Duration = 15.minutes
+    shortfall_haircut: Decimal = 1.10
+    stale_flat_after: Duration = 30.days
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+rule ApplyFill {
+    when: ApplyFill(fill_price_pence, fill_quantity, order, trader)
+    requires: fill_quantity <= order.remaining_quantity
+    requires: fill_quantity > 0
+    requires: order.status in {pending, partially_filled}
+    requires: trader.status = active
+    ensures:
+        order.quantity_filled = order.quantity_filled + fill_quantity
+        order.last_activity_at = now
+        order.trader.last_activity_at = now
+        apply_fill_to_position(fill_price_pence: fill_price_pence, fill_quantity: fill_quantity, instrument: order.instrument, side: order.side, trader: order.trader)
+        evaluate_limit_breach(trader: order.trader)
+    @guidance
+        -- Status becomes filled when remaining_quantity reaches zero, otherwise partially_filled. Re-evaluates the trader's risk limits after every fill.
+}
+
+rule CancelOrder {
+    when: CancelOrder(order)
+    requires: order.status in {pending, partially_filled}
+    ensures:
+        order.status = cancelled
+        order.last_activity_at = now
+    @guidance
+        -- Cancellation is permitted only while the order is still pending or partially_filled
+}
+
+rule ClearMarginCall {
+    when: ClearMarginCall(call)
+    requires: call.status = posted
+    ensures:
+        call.status = cleared
+        call.cleared_at = now
+    @guidance
+        -- Ops confirms posted collateral has cleared upstream. The underlying limit is re-activated if it is no longer breached.
+}
+
+rule CloseFlatPosition {
+    when: CloseFlatPosition(position)
+    requires: position.status = flat
+    ensures:
+        position.status = closed
+        position.closed_at = now
+        position.last_activity_at = now
+    @guidance
+        -- Invoked by stale_position_closer once a flat position has been inactive for config.stale_flat_after.
+}
+
+rule DailyRegulatorReport {
+    when: desk: TradingDesk.status = active
+    ensures: submit_position_report(desk: desk, report_date: now)
+    @guidance
+        -- Runs daily at 18:00 UTC. Builds one position report per desk with non-empty open-position entries and submits it to the regulator integration; receipt_ids are collected per desk.
+}
+
+rule DefaultMarginCall {
+    when: DefaultMarginCall(call)
+    requires: call.is_overdue
+    requires: call.status = issued
+    ensures:
+        call.status = defaulted
+        call.defaulted_at = now
+    @guidance
+        -- Invoked by the hourly deadline-check job once a margin call has passed its deadline without being posted
+}
+
+rule EndOfDayMarkToMarket {
+    when: position: Position.status = open
+    @guidance
+        -- Runs daily at 17:00 UTC. Re-marks every open position against the latest last-price snapshot for its instrument. In this fixture the MTM is computed on read, so the job is a no-op trigger.
+}
+
+rule EvaluateLimitBreach {
+    when: EvaluateLimitBreach(limit, trader)
+    requires: limit.status = active
+    ensures:
+        limit.status = breached
+        limit.breached_at = now
+        MarginCall.created(
+            required_amount_pence: trader.total_notional_exposure - limit.threshold_pence,
+            risk_limit: limit,
+            status: issued,
+            trader: trader
+        )
+    @guidance
+        -- Single source of truth for risk-limit breach detection. Called both from apply_fill (real-time per trader) and from the intraday aggregator (15-minute batch across all active traders). The created MarginCall's required_amount_pence is the shortfall scaled by config.shortfall_haircut.
+}
+
+rule IntradayRiskAggregator {
+    when: trader: Trader.status = active
+    ensures: evaluate_limit_breach(trader: trader)
+    @guidance
+        -- Runs every config.risk_agg_window during trading hours (07:00-17:30 UTC). Iterates every active trader and invokes evaluate_limit_breach.
+}
+
+rule MarginCallDeadlineCheck {
+    when: call: MarginCall.deadline <= now
+    requires: call.status = issued
+    ensures: default_margin_call(call: call)
+    @guidance
+        -- Hourly sweep. Any margin call still in issued state past its deadline is transitioned to defaulted.
+}
+
+rule PostMargin {
+    when: PostMargin(amount_pence, call)
+    requires: amount_pence >= call.required_amount_pence
+    requires: call.status = issued
+    requires: not call.is_overdue
+    ensures:
+        call.status = posted
+        call.posted_at = now
+        call.posted_amount_pence = amount_pence
+    @guidance
+        -- Calls the clearing house to apply the posted amount before recording it locally
+}
+
+rule ReceiveMarketTickEvent {
+    when: ReceiveMarketTickEvent(payload)
+    ensures: MarketTickEvent.created(payload)
+    @guidance
+        -- links to Instrument by instrument_symbol and updates last_mark_by_symbol
+}
+
+rule ReceiveRegulatoryNotice {
+    when: ReceiveRegulatoryNotice(payload)
+    ensures: RegulatoryNotice.created(payload)
+    @guidance
+        -- optionally links to Instrument by instrument_symbol; otherwise stored unlinked for compliance review
+}
+
+rule RejectOrder {
+    when: RejectOrder(order, reason)
+    requires: order.status = pending
+    ensures:
+        order.status = rejected
+        order.rejection_reason = reason
+        order.last_activity_at = now
+    @guidance
+        -- Only a pending order may be rejected; partially-filled orders may only be cancelled
+}
+
+rule StalePositionCloser {
+    when: position: Position.last_activity_at + config.stale_flat_after <= now
+    requires: position.status = flat
+    ensures: close_flat_position(position: position)
+    @guidance
+        -- Daily sweep. Flat positions that have been inactive for config.stale_flat_after transition to closed.
+}
+
+rule SubmitOrder {
+    when: SubmitOrder(instrument, limit_price_pence, order_id, quantity, side, trader)
+    requires: instrument.asset_class in trader.authorised_asset_classes
+    requires: is_multiple_of(quantity, instrument.lot_size)
+    requires: quantity > 0
+    requires: trader.status = active
+    ensures:
+        Order.created(
+            instrument: instrument,
+            last_activity_at: now,
+            limit_price_pence: limit_price_pence,
+            order_id: order_id,
+            quantity: quantity,
+            quantity_filled: 0,
+            side: side,
+            status: pending,
+            submitted_at: now,
+            trader: trader
+        )
+        trader.last_activity_at = now
+    @guidance
+        -- is_multiple_of expresses the quantity % instrument.lot_size == 0 check; Allium has no modulo operator. Rejected if the trader is not active or not authorised for the instrument's asset class.
+}
+
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+invariant RejectedOrdersHaveReason {
+    for o in Orders:
+        o.status = rejected implies o.rejection_reason != null
+}
+
+------------------------------------------------------------
+-- Surfaces
+------------------------------------------------------------
+
+surface Routes {
+    provides:
+        CancelOrder
+        ClearMarginCall
+        PostMargin
+        RejectOrder
+        SubmitOrder
+
+    @guidance
+        -- GET /desks/<desk_id>/exposure -> desk_exposure_route; GET /margin-calls/<margin_call_id> -> get_margin_call_route; POST /margin-calls/<margin_call_id>/clear -> clear_margin_route; POST /margin-calls/<margin_call_id>/post -> post_margin_route; POST /orders -> submit_order_route; GET /orders/<order_id> -> get_order_route; POST /orders/<order_id>/cancel -> cancel_order_route; POST /orders/<order_id>/reject -> reject_order_route; GET /traders/<trader_id>/positions -> list_trader_positions_route; GET /traders/<trader_id>/risk-summary -> trader_risk_summary_route
+}
+
+surface Webhooks {
+    provides:
+        ReceiveMarketTickEvent
+        ReceiveRegulatoryNotice
+
+    @guidance
+        -- POST /webhooks/market-data -> MarketTickEvent; POST /webhooks/regulator -> RegulatoryNotice
+}

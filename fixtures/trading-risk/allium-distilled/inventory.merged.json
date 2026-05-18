@@ -1,0 +1,1416 @@
+{
+  "auxiliary_enumerations": [
+    {
+      "name": "AssetClass",
+      "owned_by": "Instrument",
+      "values": [
+        "bond",
+        "derivative",
+        "equity"
+      ]
+    },
+    {
+      "name": "OrderSide",
+      "owned_by": "Order",
+      "values": [
+        "buy",
+        "sell"
+      ]
+    },
+    {
+      "name": "RiskLimitMetric",
+      "owned_by": "RiskLimit",
+      "values": [
+        "concentration",
+        "notional",
+        "var"
+      ]
+    },
+    {
+      "name": "RiskLimitScope",
+      "owned_by": "RiskLimit",
+      "values": [
+        "desk",
+        "firm",
+        "trader"
+      ]
+    },
+    {
+      "name": "SubscriptionStatus",
+      "owned_by": "market_data",
+      "values": [
+        "active",
+        "pending",
+        "rejected"
+      ]
+    }
+  ],
+  "config": [
+    {
+      "name": "concentration_pct",
+      "source": "app/models.py:CONCENTRATION_PCT",
+      "type_hint": "Decimal",
+      "value": "0.25"
+    },
+    {
+      "name": "margin_call_deadline",
+      "source": "app/models.py:MARGIN_CALL_DEADLINE",
+      "type_hint": "Duration",
+      "value": "1.days"
+    },
+    {
+      "name": "risk_agg_window",
+      "source": "app/models.py:RISK_AGG_WINDOW",
+      "type_hint": "Duration",
+      "value": "15.minutes"
+    },
+    {
+      "name": "shortfall_haircut",
+      "source": "app/services/risk.py:SHORTFALL_HAIRCUT",
+      "type_hint": "Decimal",
+      "value": "1.10"
+    },
+    {
+      "name": "stale_flat_after",
+      "source": "app/models.py:STALE_FLAT_AFTER",
+      "type_hint": "Duration",
+      "value": "30.days"
+    }
+  ],
+  "entities": [
+    {
+      "derived_properties": [],
+      "fields": [
+        {
+          "name": "annualised_volatility",
+          "type_hint": "Decimal"
+        },
+        {
+          "name": "asset_class",
+          "type_hint": "AssetClass"
+        },
+        {
+          "name": "currency",
+          "type_hint": "String"
+        },
+        {
+          "name": "lot_size",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "sector",
+          "type_hint": "String"
+        },
+        {
+          "name": "symbol",
+          "type_hint": "String"
+        }
+      ],
+      "guidance": "Tradeable instrument. lot_size constrains order quantity multiples; annualised_volatility is a 0.0-1.0 decimal.",
+      "kind": "internal",
+      "name": "Instrument",
+      "relationships": [],
+      "status_enum": null
+    },
+    {
+      "derived_properties": [
+        {
+          "expression": "status = issued and now > deadline",
+          "name": "is_overdue"
+        }
+      ],
+      "fields": [
+        {
+          "name": "cleared_at",
+          "type_hint": "Timestamp?"
+        },
+        {
+          "name": "deadline",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "defaulted_at",
+          "type_hint": "Timestamp?"
+        },
+        {
+          "name": "issued_at",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "margin_call_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "posted_amount_pence",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "posted_at",
+          "type_hint": "Timestamp?"
+        },
+        {
+          "name": "required_amount_pence",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "risk_limit_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "status",
+          "type_hint": "MarginCallStatus"
+        },
+        {
+          "name": "trader_id",
+          "type_hint": "String"
+        }
+      ],
+      "guidance": "Issued when a risk limit is breached. Deadline defaults to T+1 day after issuance.",
+      "kind": "internal",
+      "name": "MarginCall",
+      "relationships": [],
+      "status_enum": {
+        "name": "MarginCallStatus",
+        "values": [
+          "cleared",
+          "defaulted",
+          "issued",
+          "posted"
+        ]
+      }
+    },
+    {
+      "derived_properties": [],
+      "fields": [
+        {
+          "name": "instrument_symbol",
+          "type_hint": "String"
+        },
+        {
+          "name": "last_price_pence",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "received_at",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "tick_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "tick_time",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "venue",
+          "type_hint": "String"
+        }
+      ],
+      "guidance": "Arrives via /webhooks/market-data. Each tick updates the live mark for an instrument.",
+      "kind": "external",
+      "name": "MarketTickEvent",
+      "relationships": [],
+      "status_enum": null
+    },
+    {
+      "derived_properties": [
+        {
+          "expression": "quantity * limit_price_pence",
+          "name": "notional_value_pence"
+        },
+        {
+          "expression": "quantity - quantity_filled",
+          "name": "remaining_quantity"
+        }
+      ],
+      "fields": [
+        {
+          "name": "instrument_symbol",
+          "type_hint": "String"
+        },
+        {
+          "name": "last_activity_at",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "limit_price_pence",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "order_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "quantity",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "quantity_filled",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "rejection_reason",
+          "type_hint": "String?"
+        },
+        {
+          "name": "side",
+          "type_hint": "OrderSide"
+        },
+        {
+          "name": "status",
+          "type_hint": "OrderStatus"
+        },
+        {
+          "name": "submitted_at",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "trader_id",
+          "type_hint": "String"
+        }
+      ],
+      "guidance": "limit_price_pence = 0 indicates a market order. quantity must be a positive multiple of instrument.lot_size.",
+      "kind": "internal",
+      "name": "Order",
+      "relationships": [],
+      "status_enum": {
+        "name": "OrderStatus",
+        "values": [
+          "cancelled",
+          "filled",
+          "partially_filled",
+          "pending",
+          "rejected"
+        ]
+      }
+    },
+    {
+      "derived_properties": [],
+      "fields": [
+        {
+          "name": "avg_entry_price_pence",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "closed_at",
+          "type_hint": "Timestamp?"
+        },
+        {
+          "name": "instrument_symbol",
+          "type_hint": "String"
+        },
+        {
+          "name": "last_activity_at",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "opened_at",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "position_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "quantity",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "status",
+          "type_hint": "PositionStatus"
+        },
+        {
+          "name": "trader_id",
+          "type_hint": "String"
+        }
+      ],
+      "guidance": "quantity is signed: positive = long, negative = short. Becomes flat when quantity reaches zero; closed after stale-flat window.",
+      "kind": "internal",
+      "name": "Position",
+      "relationships": [],
+      "status_enum": {
+        "name": "PositionStatus",
+        "values": [
+          "closed",
+          "flat",
+          "open"
+        ]
+      }
+    },
+    {
+      "derived_properties": [],
+      "fields": [
+        {
+          "name": "description",
+          "type_hint": "String"
+        },
+        {
+          "name": "effective_from",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "instrument_symbol",
+          "type_hint": "String?"
+        },
+        {
+          "name": "notice_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "notice_kind",
+          "type_hint": "String"
+        },
+        {
+          "name": "received_at",
+          "type_hint": "Timestamp"
+        }
+      ],
+      "guidance": "Arrives via /webhooks/regulator. notice_kind is one of trading_halt, position_limit, or other.",
+      "kind": "external",
+      "name": "RegulatoryNotice",
+      "relationships": [],
+      "status_enum": null
+    },
+    {
+      "derived_properties": [],
+      "fields": [
+        {
+          "name": "breached_at",
+          "type_hint": "Timestamp?"
+        },
+        {
+          "name": "limit_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "metric",
+          "type_hint": "RiskLimitMetric"
+        },
+        {
+          "name": "scope",
+          "type_hint": "RiskLimitScope"
+        },
+        {
+          "name": "scope_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "status",
+          "type_hint": "RiskLimitStatus"
+        },
+        {
+          "name": "threshold_pence",
+          "type_hint": "Integer"
+        }
+      ],
+      "guidance": "scope_id identifies a trader, a desk, or the literal firm. threshold_pence is interpreted per metric.",
+      "kind": "internal",
+      "name": "RiskLimit",
+      "relationships": [],
+      "status_enum": {
+        "name": "RiskLimitStatus",
+        "values": [
+          "active",
+          "breached",
+          "overridden"
+        ]
+      }
+    },
+    {
+      "derived_properties": [
+        {
+          "expression": "open_margin_calls.count > 0",
+          "name": "has_open_margin_calls"
+        },
+        {
+          "expression": "sum(open_positions.notional_value)",
+          "name": "total_notional_exposure"
+        }
+      ],
+      "fields": [
+        {
+          "name": "authorised_asset_classes",
+          "type_hint": "Set<String>"
+        },
+        {
+          "name": "desk_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "last_activity_at",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "name",
+          "type_hint": "String"
+        },
+        {
+          "name": "status",
+          "type_hint": "TraderStatus"
+        },
+        {
+          "name": "trader_id",
+          "type_hint": "String"
+        }
+      ],
+      "guidance": "A trader belongs to one desk. authorised_asset_classes controls which instruments they may trade.",
+      "kind": "internal",
+      "name": "Trader",
+      "relationships": [
+        {
+          "name": "margin_calls",
+          "target": "MarginCall",
+          "with": "trader = this"
+        },
+        {
+          "from": "margin_calls",
+          "name": "open_margin_calls",
+          "where": "status = issued"
+        },
+        {
+          "from": "positions",
+          "name": "open_positions",
+          "where": "status = open"
+        },
+        {
+          "name": "positions",
+          "target": "Position",
+          "with": "trader = this"
+        }
+      ],
+      "status_enum": {
+        "name": "TraderStatus",
+        "values": [
+          "active",
+          "offboarded",
+          "suspended"
+        ]
+      }
+    },
+    {
+      "derived_properties": [],
+      "fields": [
+        {
+          "name": "desk_head",
+          "type_hint": "String"
+        },
+        {
+          "name": "desk_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "name",
+          "type_hint": "String"
+        },
+        {
+          "name": "risk_appetite_pence",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "status",
+          "type_hint": "DeskStatus"
+        }
+      ],
+      "guidance": "Aggregates a set of traders. risk_appetite_pence is the firm-allocated headroom for the desk.",
+      "kind": "internal",
+      "name": "TradingDesk",
+      "relationships": [
+        {
+          "from": "traders",
+          "name": "active_traders",
+          "where": "status = active"
+        },
+        {
+          "name": "traders",
+          "target": "Trader",
+          "with": "desk = this"
+        }
+      ],
+      "status_enum": {
+        "name": "DeskStatus",
+        "values": [
+          "active",
+          "shuttered",
+          "winding_down"
+        ]
+      }
+    }
+  ],
+  "header": {
+    "fixture_name": "TradingRisk",
+    "source_package": "app/"
+  },
+  "integrations": [
+    {
+      "name": "clearing_house",
+      "operations": [
+        {
+          "name": "post_margin_call",
+          "params": [
+            {
+              "name": "amount_pence",
+              "type_hint": "Integer"
+            },
+            {
+              "name": "margin_call_id",
+              "type_hint": "String"
+            },
+            {
+              "name": "trader_id",
+              "type_hint": "String"
+            }
+          ],
+          "preconditions": [
+            "amount_pence <= 1_000_000_000_00",
+            "amount_pence > 0"
+          ],
+          "raises": [
+            "ClearingHouseError"
+          ],
+          "return_type": "MarginPosting"
+        },
+        {
+          "name": "request_collateral_release",
+          "params": [
+            {
+              "name": "amount_pence",
+              "type_hint": "Integer"
+            },
+            {
+              "name": "trader_id",
+              "type_hint": "String"
+            }
+          ],
+          "preconditions": [
+            "amount_pence > 0"
+          ],
+          "raises": [
+            "ClearingHouseError"
+          ],
+          "return_type": "CollateralReleaseRequest"
+        }
+      ],
+      "purpose": "Post margin and request collateral release with the upstream clearing house."
+    },
+    {
+      "name": "market_data",
+      "operations": [
+        {
+          "name": "snapshot_price",
+          "params": [
+            {
+              "name": "instrument_symbol",
+              "type_hint": "String"
+            },
+            {
+              "name": "venue",
+              "type_hint": "String"
+            }
+          ],
+          "preconditions": [
+            "instrument_symbol != null",
+            "venue != null"
+          ],
+          "raises": [
+            "MarketDataError"
+          ],
+          "return_type": "PriceSnapshot"
+        },
+        {
+          "name": "subscribe_to_ticks",
+          "params": [
+            {
+              "name": "delivery_endpoint",
+              "type_hint": "String"
+            },
+            {
+              "name": "instrument_symbol",
+              "type_hint": "String"
+            },
+            {
+              "name": "venue",
+              "type_hint": "String"
+            }
+          ],
+          "preconditions": [
+            "instrument_symbol != null",
+            "venue != null"
+          ],
+          "raises": [
+            "MarketDataError"
+          ],
+          "return_type": "SubscriptionResponse"
+        }
+      ],
+      "purpose": "Subscribe to tick feeds and pull synchronous price snapshots from the vendor."
+    },
+    {
+      "name": "regulator_reporting",
+      "operations": [
+        {
+          "name": "submit_position_report",
+          "params": [
+            {
+              "name": "desk_id",
+              "type_hint": "String"
+            },
+            {
+              "name": "entries",
+              "type_hint": "List<PositionReportEntry>"
+            },
+            {
+              "name": "report_date",
+              "type_hint": "Timestamp"
+            }
+          ],
+          "preconditions": [
+            "desk_id != null",
+            "entries.count > 0"
+          ],
+          "raises": [
+            "RegulatorReportingError"
+          ],
+          "return_type": "PositionReportSubmission"
+        }
+      ],
+      "purpose": "Submit the desk's daily position report to the regulator's intake API."
+    }
+  ],
+  "invariants": [
+    {
+      "enforced_by": [
+        "reject_order"
+      ],
+      "expression": "status = rejected implies rejection_reason != null",
+      "name": "RejectedOrdersHaveReason",
+      "scope": "Order"
+    }
+  ],
+  "routes": [
+    {
+      "handler": "desk_exposure_route",
+      "method": "GET",
+      "module": "app/routes.py",
+      "path": "/desks/<desk_id>/exposure"
+    },
+    {
+      "handler": "get_margin_call_route",
+      "method": "GET",
+      "module": "app/routes.py",
+      "path": "/margin-calls/<margin_call_id>"
+    },
+    {
+      "handler": "clear_margin_route",
+      "method": "POST",
+      "module": "app/routes.py",
+      "path": "/margin-calls/<margin_call_id>/clear"
+    },
+    {
+      "handler": "post_margin_route",
+      "method": "POST",
+      "module": "app/routes.py",
+      "path": "/margin-calls/<margin_call_id>/post"
+    },
+    {
+      "handler": "submit_order_route",
+      "method": "POST",
+      "module": "app/routes.py",
+      "path": "/orders"
+    },
+    {
+      "handler": "get_order_route",
+      "method": "GET",
+      "module": "app/routes.py",
+      "path": "/orders/<order_id>"
+    },
+    {
+      "handler": "cancel_order_route",
+      "method": "POST",
+      "module": "app/routes.py",
+      "path": "/orders/<order_id>/cancel"
+    },
+    {
+      "handler": "reject_order_route",
+      "method": "POST",
+      "module": "app/routes.py",
+      "path": "/orders/<order_id>/reject"
+    },
+    {
+      "handler": "list_trader_positions_route",
+      "method": "GET",
+      "module": "app/routes.py",
+      "path": "/traders/<trader_id>/positions"
+    },
+    {
+      "handler": "trader_risk_summary_route",
+      "method": "GET",
+      "module": "app/routes.py",
+      "path": "/traders/<trader_id>/risk-summary"
+    }
+  ],
+  "scheduled_jobs": [
+    {
+      "body": {
+        "ensures": [
+          {
+            "args": {
+              "desk": "desk",
+              "report_date": "now"
+            },
+            "kind": "invoke",
+            "trigger": "submit_position_report"
+          }
+        ],
+        "post_invocations": [],
+        "requires": [],
+        "when": "desk: TradingDesk.status = active"
+      },
+      "guidance": "Runs daily at 18:00 UTC. Builds one position report per desk with non-empty open-position entries and submits it to the regulator integration; receipt_ids are collected per desk.",
+      "name": "daily_regulator_report"
+    },
+    {
+      "body": {
+        "ensures": [],
+        "post_invocations": [],
+        "requires": [],
+        "when": "position: Position.status = open"
+      },
+      "guidance": "Runs daily at 17:00 UTC. Re-marks every open position against the latest last-price snapshot for its instrument. In this fixture the MTM is computed on read, so the job is a no-op trigger.",
+      "name": "end_of_day_mark_to_market"
+    },
+    {
+      "body": {
+        "ensures": [
+          {
+            "args": {
+              "trader": "trader"
+            },
+            "kind": "invoke",
+            "trigger": "evaluate_limit_breach"
+          }
+        ],
+        "post_invocations": [],
+        "requires": [],
+        "when": "trader: Trader.status = active"
+      },
+      "guidance": "Runs every config.risk_agg_window during trading hours (07:00-17:30 UTC). Iterates every active trader and invokes evaluate_limit_breach.",
+      "name": "intraday_risk_aggregator"
+    },
+    {
+      "body": {
+        "ensures": [
+          {
+            "args": {
+              "call": "call"
+            },
+            "kind": "invoke",
+            "trigger": "default_margin_call"
+          }
+        ],
+        "post_invocations": [],
+        "requires": [
+          "call.status = issued"
+        ],
+        "when": "call: MarginCall.deadline <= now"
+      },
+      "guidance": "Hourly sweep. Any margin call still in issued state past its deadline is transitioned to defaulted.",
+      "name": "margin_call_deadline_check"
+    },
+    {
+      "body": {
+        "ensures": [
+          {
+            "args": {
+              "position": "position"
+            },
+            "kind": "invoke",
+            "trigger": "close_flat_position"
+          }
+        ],
+        "post_invocations": [],
+        "requires": [
+          "position.status = flat"
+        ],
+        "when": "position: Position.last_activity_at + config.stale_flat_after <= now"
+      },
+      "guidance": "Daily sweep. Flat positions that have been inactive for config.stale_flat_after transition to closed.",
+      "name": "stale_position_closer"
+    }
+  ],
+  "transitions": [
+    {
+      "body": {
+        "ensures": [
+          {
+            "kind": "assign",
+            "lhs": "order.quantity_filled",
+            "rhs": "order.quantity_filled + fill_quantity"
+          },
+          {
+            "kind": "assign",
+            "lhs": "order.last_activity_at",
+            "rhs": "now"
+          },
+          {
+            "kind": "assign",
+            "lhs": "order.trader.last_activity_at",
+            "rhs": "now"
+          },
+          {
+            "args": {
+              "fill_price_pence": "fill_price_pence",
+              "fill_quantity": "fill_quantity",
+              "instrument": "order.instrument",
+              "side": "order.side",
+              "trader": "order.trader"
+            },
+            "kind": "invoke",
+            "trigger": "apply_fill_to_position"
+          },
+          {
+            "args": {
+              "trader": "order.trader"
+            },
+            "kind": "invoke",
+            "trigger": "evaluate_limit_breach"
+          }
+        ],
+        "lets": [],
+        "params": [
+          {
+            "name": "fill_price_pence",
+            "type_hint": "Integer"
+          },
+          {
+            "name": "fill_quantity",
+            "type_hint": "Integer"
+          },
+          {
+            "name": "order",
+            "type_hint": "Order"
+          },
+          {
+            "name": "trader",
+            "type_hint": "Trader"
+          }
+        ],
+        "requires": [
+          "fill_quantity <= order.remaining_quantity",
+          "fill_quantity > 0",
+          "order.status in {pending, partially_filled}",
+          "trader.status = active"
+        ]
+      },
+      "called_from": [
+        "app/services/orders.py:apply_fill"
+      ],
+      "entity": "Order",
+      "guidance": "Status becomes filled when remaining_quantity reaches zero, otherwise partially_filled. Re-evaluates the trader's risk limits after every fill.",
+      "name": "apply_fill"
+    },
+    {
+      "body": {
+        "ensures": [
+          {
+            "kind": "assign",
+            "lhs": "order.status",
+            "rhs": "cancelled"
+          },
+          {
+            "kind": "assign",
+            "lhs": "order.last_activity_at",
+            "rhs": "now"
+          }
+        ],
+        "lets": [],
+        "params": [
+          {
+            "name": "order",
+            "type_hint": "Order"
+          }
+        ],
+        "requires": [
+          "order.status in {pending, partially_filled}"
+        ]
+      },
+      "called_from": [
+        "app/routes.py:cancel_order_route"
+      ],
+      "entity": "Order",
+      "guidance": "Cancellation is permitted only while the order is still pending or partially_filled",
+      "name": "cancel_order"
+    },
+    {
+      "body": {
+        "ensures": [
+          {
+            "kind": "assign",
+            "lhs": "call.status",
+            "rhs": "cleared"
+          },
+          {
+            "kind": "assign",
+            "lhs": "call.cleared_at",
+            "rhs": "now"
+          }
+        ],
+        "lets": [],
+        "params": [
+          {
+            "name": "call",
+            "type_hint": "MarginCall"
+          }
+        ],
+        "requires": [
+          "call.status = posted"
+        ]
+      },
+      "called_from": [
+        "app/routes.py:clear_margin_route"
+      ],
+      "entity": "MarginCall",
+      "guidance": "Ops confirms posted collateral has cleared upstream. The underlying limit is re-activated if it is no longer breached.",
+      "name": "clear_margin_call"
+    },
+    {
+      "body": {
+        "ensures": [
+          {
+            "kind": "assign",
+            "lhs": "position.status",
+            "rhs": "closed"
+          },
+          {
+            "kind": "assign",
+            "lhs": "position.closed_at",
+            "rhs": "now"
+          },
+          {
+            "kind": "assign",
+            "lhs": "position.last_activity_at",
+            "rhs": "now"
+          }
+        ],
+        "lets": [],
+        "params": [
+          {
+            "name": "position",
+            "type_hint": "Position"
+          }
+        ],
+        "requires": [
+          "position.status = flat"
+        ]
+      },
+      "called_from": [
+        "app/jobs.py:stale_position_closer"
+      ],
+      "entity": "Position",
+      "guidance": "Invoked by stale_position_closer once a flat position has been inactive for config.stale_flat_after.",
+      "name": "close_flat_position"
+    },
+    {
+      "body": {
+        "ensures": [
+          {
+            "kind": "assign",
+            "lhs": "call.status",
+            "rhs": "defaulted"
+          },
+          {
+            "kind": "assign",
+            "lhs": "call.defaulted_at",
+            "rhs": "now"
+          }
+        ],
+        "lets": [],
+        "params": [
+          {
+            "name": "call",
+            "type_hint": "MarginCall"
+          }
+        ],
+        "requires": [
+          "call.is_overdue",
+          "call.status = issued"
+        ]
+      },
+      "called_from": [
+        "app/jobs.py:margin_call_deadline_check"
+      ],
+      "entity": "MarginCall",
+      "guidance": "Invoked by the hourly deadline-check job once a margin call has passed its deadline without being posted",
+      "name": "default_margin_call"
+    },
+    {
+      "body": {
+        "ensures": [
+          {
+            "kind": "assign",
+            "lhs": "limit.status",
+            "rhs": "breached"
+          },
+          {
+            "kind": "assign",
+            "lhs": "limit.breached_at",
+            "rhs": "now"
+          },
+          {
+            "entity": "MarginCall",
+            "fields": {
+              "required_amount_pence": "trader.total_notional_exposure - limit.threshold_pence",
+              "risk_limit": "limit",
+              "status": "issued",
+              "trader": "trader"
+            },
+            "kind": "create"
+          }
+        ],
+        "lets": [],
+        "params": [
+          {
+            "name": "limit",
+            "type_hint": "RiskLimit"
+          },
+          {
+            "name": "trader",
+            "type_hint": "Trader"
+          }
+        ],
+        "requires": [
+          "limit.status = active"
+        ]
+      },
+      "called_from": [
+        "app/jobs.py:intraday_risk_aggregator",
+        "app/services/orders.py:apply_fill"
+      ],
+      "entity": "RiskLimit",
+      "guidance": "Single source of truth for risk-limit breach detection. Called both from apply_fill (real-time per trader) and from the intraday aggregator (15-minute batch across all active traders). The created MarginCall's required_amount_pence is the shortfall scaled by config.shortfall_haircut.",
+      "name": "evaluate_limit_breach"
+    },
+    {
+      "body": {
+        "ensures": [
+          {
+            "kind": "assign",
+            "lhs": "call.status",
+            "rhs": "posted"
+          },
+          {
+            "kind": "assign",
+            "lhs": "call.posted_at",
+            "rhs": "now"
+          },
+          {
+            "kind": "assign",
+            "lhs": "call.posted_amount_pence",
+            "rhs": "amount_pence"
+          }
+        ],
+        "lets": [],
+        "params": [
+          {
+            "name": "amount_pence",
+            "type_hint": "Integer"
+          },
+          {
+            "name": "call",
+            "type_hint": "MarginCall"
+          }
+        ],
+        "requires": [
+          "amount_pence >= call.required_amount_pence",
+          "call.status = issued",
+          "not call.is_overdue"
+        ]
+      },
+      "called_from": [
+        "app/routes.py:post_margin_route"
+      ],
+      "entity": "MarginCall",
+      "guidance": "Calls the clearing house to apply the posted amount before recording it locally",
+      "name": "post_margin"
+    },
+    {
+      "body": {
+        "ensures": [
+          {
+            "kind": "assign",
+            "lhs": "order.status",
+            "rhs": "rejected"
+          },
+          {
+            "kind": "assign",
+            "lhs": "order.rejection_reason",
+            "rhs": "reason"
+          },
+          {
+            "kind": "assign",
+            "lhs": "order.last_activity_at",
+            "rhs": "now"
+          }
+        ],
+        "lets": [],
+        "params": [
+          {
+            "name": "order",
+            "type_hint": "Order"
+          },
+          {
+            "name": "reason",
+            "type_hint": "String"
+          }
+        ],
+        "requires": [
+          "order.status = pending"
+        ]
+      },
+      "called_from": [
+        "app/routes.py:reject_order_route"
+      ],
+      "entity": "Order",
+      "guidance": "Only a pending order may be rejected; partially-filled orders may only be cancelled",
+      "name": "reject_order"
+    },
+    {
+      "body": {
+        "ensures": [
+          {
+            "entity": "Order",
+            "fields": {
+              "instrument": "instrument",
+              "last_activity_at": "now",
+              "limit_price_pence": "limit_price_pence",
+              "order_id": "order_id",
+              "quantity": "quantity",
+              "quantity_filled": "0",
+              "side": "side",
+              "status": "pending",
+              "submitted_at": "now",
+              "trader": "trader"
+            },
+            "kind": "create"
+          },
+          {
+            "kind": "assign",
+            "lhs": "trader.last_activity_at",
+            "rhs": "now"
+          }
+        ],
+        "lets": [],
+        "params": [
+          {
+            "name": "instrument",
+            "type_hint": "Instrument"
+          },
+          {
+            "name": "limit_price_pence",
+            "type_hint": "Integer"
+          },
+          {
+            "name": "order_id",
+            "type_hint": "String"
+          },
+          {
+            "name": "quantity",
+            "type_hint": "Integer"
+          },
+          {
+            "name": "side",
+            "type_hint": "OrderSide"
+          },
+          {
+            "name": "trader",
+            "type_hint": "Trader"
+          }
+        ],
+        "requires": [
+          "instrument.asset_class in trader.authorised_asset_classes",
+          "is_multiple_of(quantity, instrument.lot_size)",
+          "quantity > 0",
+          "trader.status = active"
+        ]
+      },
+      "called_from": [
+        "app/routes.py:submit_order_route"
+      ],
+      "entity": "Order",
+      "guidance": "is_multiple_of expresses the quantity % instrument.lot_size == 0 check; Allium has no modulo operator. Rejected if the trader is not active or not authorised for the instrument's asset class.",
+      "name": "submit_order"
+    }
+  ],
+  "value_types": [
+    {
+      "fields": [
+        {
+          "name": "amount_pence",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "submitted_at",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "trader_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "upstream_reference",
+          "type_hint": "String"
+        }
+      ],
+      "name": "CollateralReleaseRequest",
+      "owned_by": "clearing_house"
+    },
+    {
+      "fields": [
+        {
+          "name": "amount_pence",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "margin_call_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "submitted_at",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "trader_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "upstream_reference",
+          "type_hint": "String"
+        }
+      ],
+      "name": "MarginPosting",
+      "owned_by": "clearing_house"
+    },
+    {
+      "fields": [
+        {
+          "name": "instrument_symbol",
+          "type_hint": "String"
+        },
+        {
+          "name": "net_quantity",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "notional_value_pence",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "trader_id",
+          "type_hint": "String"
+        }
+      ],
+      "name": "PositionReportEntry",
+      "owned_by": "regulator_reporting"
+    },
+    {
+      "fields": [
+        {
+          "name": "desk_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "entries",
+          "type_hint": "List<PositionReportEntry>"
+        },
+        {
+          "name": "receipt_id",
+          "type_hint": "String"
+        },
+        {
+          "name": "report_date",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "submitted_at",
+          "type_hint": "Timestamp"
+        }
+      ],
+      "name": "PositionReportSubmission",
+      "owned_by": "regulator_reporting"
+    },
+    {
+      "fields": [
+        {
+          "name": "instrument_symbol",
+          "type_hint": "String"
+        },
+        {
+          "name": "last_price_pence",
+          "type_hint": "Integer"
+        },
+        {
+          "name": "snapshot_time",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "venue",
+          "type_hint": "String"
+        }
+      ],
+      "name": "PriceSnapshot",
+      "owned_by": "market_data"
+    },
+    {
+      "fields": [
+        {
+          "name": "delivery_endpoint",
+          "type_hint": "String"
+        },
+        {
+          "name": "instrument_symbol",
+          "type_hint": "String"
+        },
+        {
+          "name": "venue",
+          "type_hint": "String"
+        }
+      ],
+      "name": "SubscriptionRequest",
+      "owned_by": "market_data"
+    },
+    {
+      "fields": [
+        {
+          "name": "accepted_at",
+          "type_hint": "Timestamp"
+        },
+        {
+          "name": "request",
+          "type_hint": "SubscriptionRequest"
+        },
+        {
+          "name": "status",
+          "type_hint": "SubscriptionStatus"
+        },
+        {
+          "name": "subscription_id",
+          "type_hint": "String"
+        }
+      ],
+      "name": "SubscriptionResponse",
+      "owned_by": "market_data"
+    }
+  ],
+  "webhooks": [
+    {
+      "linking_rule": "links to Instrument by instrument_symbol and updates last_mark_by_symbol",
+      "path": "/webhooks/market-data",
+      "produces_entity": "MarketTickEvent"
+    },
+    {
+      "linking_rule": "optionally links to Instrument by instrument_symbol; otherwise stored unlinked for compliance review",
+      "path": "/webhooks/regulator",
+      "produces_entity": "RegulatoryNotice"
+    }
+  ]
+}
